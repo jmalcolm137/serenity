@@ -24,7 +24,7 @@ Press `Space` (or `M`) to toggle *Pencil Marks* mode: instead of placing a digit
 
 * `&Game`
   * `New Game` (`F2`): start a fresh puzzle at the current difficulty.
-  * `Difficulty`: choose between Easy, Medium, Hard and Diabolical.
+  * `Difficulty`: choose between Easy, Medium, Hard and Expert.
   * `Restart`: clear your entries and return to the initial clues.
   * `Undo` (`Ctrl+Z`) / `Redo` (`Ctrl+Y`): step through your entries.
   * `Check`: report how many of your entries differ from the solution.
