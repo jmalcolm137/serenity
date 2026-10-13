@@ -56,7 +56,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     auto difficulty = Sudoku::Difficulty::Easy;
     {
         auto stored_difficulty = Config::read_i32("Sudoku"sv, ""sv, "difficulty"sv, 0);
-        if (stored_difficulty >= 0 && stored_difficulty <= static_cast<i32>(Sudoku::Difficulty::Diabolical))
+        if (stored_difficulty >= 0 && stored_difficulty <= static_cast<i32>(Sudoku::Difficulty::Expert))
             difficulty = static_cast<Sudoku::Difficulty>(stored_difficulty);
     }
     board.set_markup_enabled(Config::read_bool("Sudoku"sv, ""sv, "pencil_marks"sv, false));
@@ -100,7 +100,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
         { "&Easy", Sudoku::Difficulty::Easy },
         { "&Medium", Sudoku::Difficulty::Medium },
         { "&Hard", Sudoku::Difficulty::Hard },
-        { "&Diabolical", Sudoku::Difficulty::Diabolical },
+        { "&Expert", Sudoku::Difficulty::Expert },
     };
     GUI::ActionGroup difficulty_group;
     difficulty_group.set_exclusive(true);

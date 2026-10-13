@@ -20,8 +20,8 @@ ByteString difficulty_name(Difficulty difficulty)
         return "Medium";
     case Difficulty::Hard:
         return "Hard";
-    case Difficulty::Diabolical:
-        return "Diabolical";
+    case Difficulty::Expert:
+        return "Expert";
     }
     VERIFY_NOT_REACHED();
 }
@@ -37,7 +37,7 @@ int target_clue_count(Difficulty difficulty)
         return 33;
     case Difficulty::Hard:
         return 28;
-    case Difficulty::Diabolical:
+    case Difficulty::Expert:
         return 24;
     }
     VERIFY_NOT_REACHED();

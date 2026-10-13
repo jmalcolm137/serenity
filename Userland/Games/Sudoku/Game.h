@@ -18,7 +18,7 @@ enum class Difficulty {
     Easy,
     Medium,
     Hard,
-    Diabolical,
+    Expert,
 };
 
 ByteString difficulty_name(Difficulty);
