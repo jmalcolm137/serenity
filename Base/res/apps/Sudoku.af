@@ -1,0 +1,4 @@
+[App]
+Name=&Sudoku
+Executable=/bin/Sudoku
+Category=&Games
