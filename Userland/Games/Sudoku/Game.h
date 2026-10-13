@@ -15,10 +15,10 @@
 namespace Sudoku {
 
 enum class Difficulty {
-    Easy,
-    Medium,
-    Hard,
+    Beginner,
+    Intermediate,
     Expert,
+    Madwoman,
 };
 
 ByteString difficulty_name(Difficulty);
@@ -83,7 +83,7 @@ private:
     Array<u8, 81> m_solution { };
     Array<bool, 81> m_given { };
     Array<u16, 81> m_notes { };
-    Difficulty m_difficulty { Difficulty::Easy };
+    Difficulty m_difficulty { Difficulty::Beginner };
     Vector<Move> m_undo;
     Vector<Move> m_redo;
 };
