@@ -24,11 +24,12 @@ Press `Space` (or `M`) to toggle *Pencil Marks* mode: instead of placing a digit
 
 * `&Game`
   * `New Game` (`F2`): start a fresh puzzle at the current difficulty.
-  * `Difficulty`: choose between Easy, Medium, Hard and Expert.
   * `Restart`: clear your entries and return to the initial clues.
-  * `Undo` (`Ctrl+Z`) / `Redo` (`Ctrl+Y`): step through your entries.
+  * `Undo` (`Ctrl+Z`) / `Redo` (`Ctrl+Shift+Z`): step through your entries.
   * `Check`: report how many of your entries differ from the solution.
   * `Solve`: reveal the entire solution.
+* `&Difficulty`
+  * `Beginner` (`Ctrl+B`), `Intermediate` (`Ctrl+I`), `Expert` (`Ctrl+E`) and `Madwoman` (`Ctrl+M`): choose the difficulty of the next new game.
 * `&Settings`
   * `Pencil Marks`: toggle candidate marks.
   * `Highlight Conflicts`: highlight cells that clash with a peer.

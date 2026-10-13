@@ -54,10 +54,10 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     auto& board = main_widget->add<Sudoku::BoardWidget>();
     auto& statusbar = main_widget->add<GUI::Statusbar>();
 
-    auto difficulty = Sudoku::Difficulty::Easy;
+    auto difficulty = Sudoku::Difficulty::Beginner;
     {
         auto stored_difficulty = Config::read_i32("Sudoku"sv, ""sv, "difficulty"sv, 0);
-        if (stored_difficulty >= 0 && stored_difficulty <= static_cast<i32>(Sudoku::Difficulty::Expert))
+        if (stored_difficulty >= 0 && stored_difficulty <= static_cast<i32>(Sudoku::Difficulty::Madwoman))
             difficulty = static_cast<Sudoku::Difficulty>(stored_difficulty);
     }
     board.set_markup_enabled(Config::read_bool("Sudoku"sv, ""sv, "pencil_marks"sv, false));
@@ -92,30 +92,6 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     game_menu->add_action(GUI::Action::create("&New Game", { Mod_None, Key_F2 }, TRY(Gfx::Bitmap::load_from_uri("resource://icons/16x16/reload.png"sv)), [&](auto&) {
         start_new_game();
     }));
-
-    auto difficulty_menu = game_menu->add_submenu("&Difficulty"_string);
-    static constexpr struct {
-        char const* label;
-        Sudoku::Difficulty difficulty;
-    } difficulty_entries[] = {
-        { "&Easy", Sudoku::Difficulty::Easy },
-        { "&Medium", Sudoku::Difficulty::Medium },
-        { "&Hard", Sudoku::Difficulty::Hard },
-        { "&Expert", Sudoku::Difficulty::Expert },
-    };
-    GUI::ActionGroup difficulty_group;
-    difficulty_group.set_exclusive(true);
-    difficulty_group.set_unchecking_allowed(false);
-    for (auto const& entry : difficulty_entries) {
-        auto action = GUI::Action::create_checkable(entry.label, [&, selected = entry.difficulty](auto&) {
-            difficulty = selected;
-            Config::write_i32("Sudoku"sv, ""sv, "difficulty"sv, static_cast<i32>(selected));
-            start_new_game();
-        });
-        action->set_checked(difficulty == entry.difficulty);
-        difficulty_group.add_action(action);
-        difficulty_menu->add_action(action);
-    }
 
     game_menu->add_action(GUI::Action::create("&Restart", [&](auto&) {
         board.restart();
@@ -156,6 +132,46 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     game_menu->add_action(GUI::CommonActions::make_quit_action([](auto&) {
         GUI::Application::the()->quit();
     }));
+
+    auto difficulty_menu = window->add_menu("&Difficulty"_string);
+    GUI::ActionGroup difficulty_actions;
+    difficulty_actions.set_exclusive(true);
+
+    auto beginner_action = GUI::Action::create_checkable("&Beginner", { Mod_Ctrl, Key_B }, [&](auto&) {
+        difficulty = Sudoku::Difficulty::Beginner;
+        Config::write_i32("Sudoku"sv, ""sv, "difficulty"sv, static_cast<i32>(difficulty));
+        start_new_game();
+    });
+    beginner_action->set_checked(difficulty == Sudoku::Difficulty::Beginner);
+    difficulty_menu->add_action(beginner_action);
+    difficulty_actions.add_action(beginner_action);
+
+    auto intermediate_action = GUI::Action::create_checkable("&Intermediate", { Mod_Ctrl, Key_I }, [&](auto&) {
+        difficulty = Sudoku::Difficulty::Intermediate;
+        Config::write_i32("Sudoku"sv, ""sv, "difficulty"sv, static_cast<i32>(difficulty));
+        start_new_game();
+    });
+    intermediate_action->set_checked(difficulty == Sudoku::Difficulty::Intermediate);
+    difficulty_menu->add_action(intermediate_action);
+    difficulty_actions.add_action(intermediate_action);
+
+    auto expert_action = GUI::Action::create_checkable("&Expert", { Mod_Ctrl, Key_E }, [&](auto&) {
+        difficulty = Sudoku::Difficulty::Expert;
+        Config::write_i32("Sudoku"sv, ""sv, "difficulty"sv, static_cast<i32>(difficulty));
+        start_new_game();
+    });
+    expert_action->set_checked(difficulty == Sudoku::Difficulty::Expert);
+    difficulty_menu->add_action(expert_action);
+    difficulty_actions.add_action(expert_action);
+
+    auto madwoman_action = GUI::Action::create_checkable("&Madwoman", { Mod_Ctrl, Key_M }, [&](auto&) {
+        difficulty = Sudoku::Difficulty::Madwoman;
+        Config::write_i32("Sudoku"sv, ""sv, "difficulty"sv, static_cast<i32>(difficulty));
+        start_new_game();
+    });
+    madwoman_action->set_checked(difficulty == Sudoku::Difficulty::Madwoman);
+    difficulty_menu->add_action(madwoman_action);
+    difficulty_actions.add_action(madwoman_action);
 
     auto settings_menu = window->add_menu("&Settings"_string);
     auto pencil_action = GUI::Action::create_checkable("&Pencil Marks", [&](auto& action) {

@@ -14,14 +14,14 @@ namespace Sudoku {
 ByteString difficulty_name(Difficulty difficulty)
 {
     switch (difficulty) {
-    case Difficulty::Easy:
-        return "Easy";
-    case Difficulty::Medium:
-        return "Medium";
-    case Difficulty::Hard:
-        return "Hard";
+    case Difficulty::Beginner:
+        return "Beginner";
+    case Difficulty::Intermediate:
+        return "Intermediate";
     case Difficulty::Expert:
         return "Expert";
+    case Difficulty::Madwoman:
+        return "Madwoman";
     }
     VERIFY_NOT_REACHED();
 }
@@ -31,13 +31,13 @@ namespace {
 int target_clue_count(Difficulty difficulty)
 {
     switch (difficulty) {
-    case Difficulty::Easy:
+    case Difficulty::Beginner:
         return 40;
-    case Difficulty::Medium:
+    case Difficulty::Intermediate:
         return 33;
-    case Difficulty::Hard:
-        return 28;
     case Difficulty::Expert:
+        return 28;
+    case Difficulty::Madwoman:
         return 24;
     }
     VERIFY_NOT_REACHED();
@@ -254,7 +254,7 @@ void carve_puzzle(Array<u8, 81>& grid, int target_clues)
 
 Game::Game()
 {
-    new_game(Difficulty::Easy);
+    new_game(Difficulty::Beginner);
 }
 
 void Game::new_game(Difficulty difficulty)
