@@ -21,6 +21,7 @@
 #include <LibGUI/MessageBox.h>
 #include <LibGUI/Statusbar.h>
 #include <LibGUI/Window.h>
+#include <LibGfx/Bitmap.h>
 #include <LibMain/Main.h>
 #include <LibURL/URL.h>
 
@@ -88,7 +89,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     };
 
     auto game_menu = window->add_menu("&Game"_string);
-    game_menu->add_action(GUI::Action::create("&New Game", { Mod_None, Key_F2 }, [&](auto&) {
+    game_menu->add_action(GUI::Action::create("&New Game", { Mod_None, Key_F2 }, TRY(Gfx::Bitmap::load_from_uri("resource://icons/16x16/reload.png"sv)), [&](auto&) {
         start_new_game();
     }));
 
@@ -124,13 +125,13 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     }));
     game_menu->add_separator();
 
-    auto undo_action = GUI::Action::create("&Undo", { Mod_Ctrl, Key_Z }, [&](auto&) {
+    auto undo_action = GUI::CommonActions::make_undo_action([&](auto&) {
         board.game().undo();
         update_status();
     });
     game_menu->add_action(undo_action);
 
-    auto redo_action = GUI::Action::create("&Redo", { Mod_Ctrl, Key_Y }, [&](auto&) {
+    auto redo_action = GUI::CommonActions::make_redo_action([&](auto&) {
         board.game().redo();
         update_status();
     });
