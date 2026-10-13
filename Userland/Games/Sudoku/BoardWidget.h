@@ -20,8 +20,6 @@ class BoardWidget : public GUI::Widget {
 public:
     virtual ~BoardWidget() override = default;
 
-    static constexpr int board_pixel_size() { return CELL_SIZE * Game::size(); }
-
     void new_game(Difficulty);
     void restart();
 
@@ -44,6 +42,7 @@ private:
     BoardWidget();
 
     virtual void paint_event(GUI::PaintEvent&) override;
+    virtual void resize_event(GUI::ResizeEvent&) override;
     virtual void mousedown_event(GUI::MouseEvent&) override;
     virtual void keydown_event(GUI::KeyEvent&) override;
     virtual void focusin_event(GUI::FocusEvent&) override;
@@ -51,9 +50,10 @@ private:
 
     void move_selection(int delta_x, int delta_y);
     void enter_digit(u8 digit);
+    int cell_size() const;
+    int board_size() const;
     Gfx::IntRect cell_rect(int row, int col) const;
-
-    static constexpr int CELL_SIZE { 54 };
+    void update_fonts();
 
     Game m_game;
     int m_selected_row { -1 };
@@ -61,6 +61,7 @@ private:
     bool m_markup { false };
     bool m_show_conflicts { true };
     bool m_has_focus { false };
+    int m_cell_size { 0 };
 
     RefPtr<Gfx::Font const> m_digit_font;
     RefPtr<Gfx::Font const> m_note_font;
