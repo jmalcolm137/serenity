@@ -45,8 +45,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
 
     auto window = GUI::Window::construct();
     window->set_title("Sudoku");
-    window->set_resizable(false);
-    window->set_auto_shrink(true);
+    window->set_resizable(true);
     window->set_icon(app_icon.bitmap_for_size(16));
 
     auto main_widget = window->set_main_widget<GUI::Widget>();
@@ -203,6 +202,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     timer->start();
     update_status();
 
+    window->resize(480, 500);
     window->show();
     board.set_focus(true);
 

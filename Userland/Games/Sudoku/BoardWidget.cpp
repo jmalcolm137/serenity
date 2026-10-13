@@ -58,9 +58,7 @@ static RefPtr<Gfx::Font const> find_font(char const* family, int target_size, in
 BoardWidget::BoardWidget()
 {
     set_focus_policy(GUI::FocusPolicy::StrongFocus);
-    set_fixed_size({ board_pixel_size(), board_pixel_size() });
-    m_digit_font = find_font("Liza", 24, 700);
-    m_note_font = find_font("Liza", 10, -1);
+    set_min_size(180, 180);
 
     m_game.on_change = [this] {
         update();
@@ -101,9 +99,29 @@ void BoardWidget::set_show_conflicts(bool show)
     update();
 }
 
+int BoardWidget::cell_size() const
+{
+    return max(1, min(width(), height()) / Game::size());
+}
+
+int BoardWidget::board_size() const
+{
+    return cell_size() * Game::size();
+}
+
 Gfx::IntRect BoardWidget::cell_rect(int row, int col) const
 {
-    return { col * CELL_SIZE, row * CELL_SIZE, CELL_SIZE, CELL_SIZE };
+    return { col * cell_size(), row * cell_size(), cell_size(), cell_size() };
+}
+
+void BoardWidget::update_fonts()
+{
+    if (cell_size() == m_cell_size && m_digit_font)
+        return;
+    m_cell_size = cell_size();
+    // Aim for a digit about half the cell height, and notes about a fifth.
+    m_digit_font = find_font("Liza", max(10, m_cell_size * 11 / 20), 700);
+    m_note_font = find_font("Liza", max(6, m_cell_size * 11 / 50), -1);
 }
 
 void BoardWidget::select(int row, int col)
@@ -144,10 +162,11 @@ void BoardWidget::mousedown_event(GUI::MouseEvent& event)
     }
 
     auto position = event.position();
-    if (position.x() < 0 || position.y() < 0 || position.x() >= board_pixel_size() || position.y() >= board_pixel_size())
+    int cell = cell_size();
+    if (position.x() < 0 || position.y() < 0 || position.x() >= board_size() || position.y() >= board_size())
         return;
 
-    select(position.y() / CELL_SIZE, position.x() / CELL_SIZE);
+    select(position.y() / cell, position.x() / cell);
     set_focus(true);
 }
 
@@ -227,16 +246,23 @@ void BoardWidget::focusout_event(GUI::FocusEvent& event)
     GUI::Widget::focusout_event(event);
 }
 
+void BoardWidget::resize_event(GUI::ResizeEvent& event)
+{
+    update_fonts();
+    GUI::Widget::resize_event(event);
+}
+
 void BoardWidget::paint_event(GUI::PaintEvent& event)
 {
     GUI::Widget::paint_event(event);
     GUI::Painter painter(*this);
     painter.add_clip_rect(event.rect());
 
+    update_fonts();
     auto const& digit_font = m_digit_font ? *m_digit_font : Gfx::FontDatabase::default_font();
     auto const& note_font = m_note_font ? *m_note_font : Gfx::FontDatabase::default_font();
 
-    painter.fill_rect({ 0, 0, board_pixel_size(), board_pixel_size() }, BOARD_BACKGROUND_COLOR);
+    painter.fill_rect({ 0, 0, board_size(), board_size() }, BOARD_BACKGROUND_COLOR);
 
     if (has_selection()) {
         u8 selected_value = m_game.value(m_selected_row, m_selected_col);
@@ -286,15 +312,15 @@ void BoardWidget::paint_event(GUI::PaintEvent& event)
     }
 
     for (int i = 0; i <= Game::size(); ++i) {
-        int position = i * CELL_SIZE;
+        int position = i * cell_size();
         bool is_box_line = (i % 3) == 0;
         auto color = is_box_line ? BOX_LINE_COLOR : GRID_LINE_COLOR;
-        int clamped_position = min(position, board_pixel_size() - 1);
-        painter.draw_line({ clamped_position, 0 }, { clamped_position, board_pixel_size() - 1 }, color);
-        painter.draw_line({ 0, clamped_position }, { board_pixel_size() - 1, clamped_position }, color);
-        if (is_box_line && clamped_position + 1 < board_pixel_size()) {
-            painter.draw_line({ clamped_position + 1, 0 }, { clamped_position + 1, board_pixel_size() - 1 }, color);
-            painter.draw_line({ 0, clamped_position + 1 }, { board_pixel_size() - 1, clamped_position + 1 }, color);
+        int clamped_position = min(position, board_size() - 1);
+        painter.draw_line({ clamped_position, 0 }, { clamped_position, board_size() - 1 }, color);
+        painter.draw_line({ 0, clamped_position }, { board_size() - 1, clamped_position }, color);
+        if (is_box_line && clamped_position + 1 < board_size()) {
+            painter.draw_line({ clamped_position + 1, 0 }, { clamped_position + 1, board_size() - 1 }, color);
+            painter.draw_line({ 0, clamped_position + 1 }, { board_size() - 1, clamped_position + 1 }, color);
         }
     }
 
