@@ -262,6 +262,10 @@ void QuickLaunchWidget::paint_event(GUI::PaintEvent& event)
         Gfx::StylePainter::paint_button(painter, rect, palette(), Gfx::ButtonStyle::Coolbar, entry->is_pressed(), entry->is_hovered());
 
         auto const* icon = entry->icon().bitmap_for_size(16);
+        // An entry's icon may have no 16x16 bitmap (an app file can name an icon
+        // that is missing or lacks that size); draw the button without it.
+        if (!icon)
+            return;
         auto content_rect = rect.shrunken(8, 2);
         auto icon_location = content_rect.center().translated(-(icon->width() / 2), -(icon->height() / 2));
         if (entry->is_pressed())
