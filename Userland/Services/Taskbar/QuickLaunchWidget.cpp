@@ -43,7 +43,14 @@ OwnPtr<QuickLaunchEntry> QuickLaunchEntry::create_from_path(StringView path)
         if (!path.starts_with('/'))
             af_path = ByteString::formatted("{}/{}", Desktop::AppFile::APP_FILES_DIRECTORY, path);
 
-        return make<QuickLaunchEntryAppFile>(Desktop::AppFile::open(af_path));
+        auto app_file = Desktop::AppFile::open(af_path);
+        // A pinned entry can outlive the app it points at (the app was
+        // uninstalled, or its app file renamed). AppFile::name() VERIFYs on an
+        // invalid file, and the entry's name is its label and config key, so drop
+        // the entry instead of taking the Taskbar down with it.
+        if (!app_file->is_valid())
+            return {};
+        return make<QuickLaunchEntryAppFile>(move(app_file));
     }
 
     auto stat_or_error = Core::System::stat(path);
