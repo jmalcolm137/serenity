@@ -239,9 +239,14 @@ void Game::start_animation(Vector<NonnullRefPtr<Card>> cards, Gfx::IntPoint end,
 void Game::stop_animation()
 {
     if (m_animation_playing) {
-        for (auto& animation : m_animation_cards)
+        Gfx::IntRect update_rect;
+        for (auto& animation : m_animation_cards) {
+            update_rect = update_rect.united(animation.card->rect());
             animation.card->set_position(m_animation_end);
+            update_rect = update_rect.united(animation.card->rect());
+        }
         m_animation_playing = false;
+        update(update_rect);
     }
     if (m_animation_delay_timer)
         m_animation_delay_timer->stop();
@@ -553,7 +558,16 @@ void Game::advance_game()
                 for (auto& player : m_players)
                     quick_sort(player.cards_taken, hearts_card_less);
 
+            // The cards have just left the paint list, but their final position
+            // still contains their pixels. Invalidate it before starting the next
+            // partial repaint, otherwise the completed trick remains as ghost
+            // cards at the target.
+            Gfx::IntRect update_rect;
+            for (auto& card : m_trick)
+                update_rect = update_rect.united(card->rect());
             m_trick.clear_with_capacity();
+            update(update_rect);
+
             m_leading_player = &taking_player;
             dbgln_if(HEARTS_DEBUG, "-----");
             advance_game();
