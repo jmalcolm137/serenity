@@ -239,14 +239,10 @@ void Game::start_animation(Vector<NonnullRefPtr<Card>> cards, Gfx::IntPoint end,
 void Game::stop_animation()
 {
     if (m_animation_playing) {
-        Gfx::IntRect update_rect;
-        for (auto& animation : m_animation_cards) {
-            update_rect = update_rect.united(animation.card->rect());
+        for (auto& animation : m_animation_cards)
             animation.card->set_position(m_animation_end);
-            update_rect = update_rect.united(animation.card->rect());
-        }
         m_animation_playing = false;
-        update(update_rect);
+        update();
     }
     if (m_animation_delay_timer)
         m_animation_delay_timer->stop();
@@ -257,12 +253,12 @@ void Game::timer_event(Core::TimerEvent&)
 {
     if (!m_animation_playing)
         return;
-    for (auto& animation : m_animation_cards) {
-        Gfx::IntRect update_rect = animation.card->rect();
+    for (auto& animation : m_animation_cards)
         animation.card->set_position(animation.start + (m_animation_end - animation.start) * m_animation_current_step / m_animation_steps);
-        update_rect = update_rect.united(animation.card->rect());
-        update(update_rect);
-    }
+    // Cards move over one another and leave the trick/hand paint list at different
+    // points. A full Game repaint is cheap (640x480) and avoids edge fragments
+    // surviving from a stale per-card damage union.
+    update();
     if (m_animation_current_step >= m_animation_steps) {
         stop_timer();
         m_animation_playing = false;
@@ -558,15 +554,10 @@ void Game::advance_game()
                 for (auto& player : m_players)
                     quick_sort(player.cards_taken, hearts_card_less);
 
-            // The cards have just left the paint list, but their final position
-            // still contains their pixels. Invalidate it before starting the next
-            // partial repaint, otherwise the completed trick remains as ghost
-            // cards at the target.
-            Gfx::IntRect update_rect;
-            for (auto& card : m_trick)
-                update_rect = update_rect.united(card->rect());
+            // The cards have just left the paint list, but their pixels are still
+            // on the Game widget. Repaint it before starting the next action.
             m_trick.clear_with_capacity();
-            update(update_rect);
+            update();
 
             m_leading_player = &taking_player;
             dbgln_if(HEARTS_DEBUG, "-----");
@@ -608,7 +599,13 @@ void Game::play_card(Player& player, size_t card_index)
     dbgln_if(HEARTS_DEBUG, "{} plays {}", player, *card);
     VERIFY(is_valid_play(player, *card));
     card->set_upside_down(false);
+    auto const old_card_rect = card->rect();
     m_trick.append(*card);
+
+    // The card leaves the hand before the animation starts. If the first paint
+    // happens after it has been added to the trick, the animation's first damage
+    // update only covers its new position; invalidate the hand slot explicitly.
+    update(old_card_rect);
 
     Gfx::IntPoint const trick_card_positions[] = {
         { width / 2 - Card::width / 2, height / 2 - 30 },
