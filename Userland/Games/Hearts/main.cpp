@@ -100,7 +100,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     auto view_menu = window->add_menu("&View"_string);
     view_menu->add_action(GUI::CommonActions::make_fullscreen_action([&](auto&) {
         window->set_fullscreen(!window->is_fullscreen());
-    }, window.ptr()));
+    }));
 
     auto help_menu = window->add_menu("&Help"_string);
     help_menu->add_action(GUI::CommonActions::make_command_palette_action(window));
