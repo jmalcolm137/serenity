@@ -69,6 +69,8 @@ public:
     VT::Range normalized_selection() const { return m_selection.normalized(); }
     void set_selection(const VT::Range& selection);
     VT::Position buffer_position_at(Gfx::IntPoint) const;
+    VT::Position screen_position_at(Gfx::IntPoint) const;
+    void send_mouse_event(GUI::MouseEvent&, int button, bool release);
 
     VT::Range find_next(StringView, const VT::Position& start = {}, bool case_sensitivity = false, bool should_wrap = false);
     VT::Range find_previous(StringView, const VT::Position& start = {}, bool case_sensitivity = false, bool should_wrap = false);
@@ -188,10 +190,10 @@ private:
     VT::Range m_selection;
 
     ByteString m_hovered_href;
-    Optional<ByteString> m_hovered_href_id;
+    u32 m_hovered_hyperlink { 0 };
 
     ByteString m_active_href;
-    Optional<ByteString> m_active_href_id;
+    u32 m_active_hyperlink { 0 };
 
     // Snapshot of m_hovered_href when opening a context menu for a hyperlink.
     ByteString m_context_menu_href;

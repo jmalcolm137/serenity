@@ -65,6 +65,13 @@ public:
     virtual void set_cursor_hidden(bool) = 0;
 };
 
+#ifndef KERNEL
+struct Hyperlink {
+    ByteString href;
+    Optional<ByteString> id;
+};
+#endif
+
 class Terminal : public EscapeSequenceExecutor {
 public:
 #ifndef KERNEL
@@ -190,12 +197,38 @@ public:
 
 #ifndef KERNEL
     Attribute attribute_at(Position const&) const;
+
+    Hyperlink const* hyperlink(u32 index) const
+    {
+        return index > 0 && index <= m_hyperlinks.size() ? &m_hyperlinks[index - 1] : nullptr;
+    }
+    ByteString hyperlink_href(Attribute const& attribute) const
+    {
+        if (auto* link = hyperlink(attribute.hyperlink))
+            return link->href;
+        return {};
+    }
+    Optional<ByteString> hyperlink_id(Attribute const& attribute) const
+    {
+        if (auto* link = hyperlink(attribute.hyperlink))
+            return link->id;
+        return {};
+    }
 #endif
 
     bool needs_bracketed_paste() const
     {
         return m_needs_bracketed_paste;
     }
+
+    // Mouse reporting (DEC private modes 9/1000/1002/1003) and its encodings
+    // (1005 UTF-8, 1006 SGR) and focus reporting (1004).
+    bool mouse_tracking() const { return m_mouse_tracking_flags != 0; }
+    bool mouse_reports_any_motion() const { return (m_mouse_tracking_flags & 0x8u) != 0; }
+    bool mouse_reports_drag() const { return (m_mouse_tracking_flags & 0xcu) != 0; }
+    bool mouse_sgr() const { return m_mouse_sgr; }
+    bool mouse_utf8() const { return m_mouse_utf8; }
+    bool mouse_focus_events() const { return m_mouse_focus_events; }
 
     bool is_within_scroll_region(u16 line) const
     {
@@ -396,6 +429,27 @@ protected:
 #ifndef KERNEL
     size_t m_history_start = 0;
     Vector<NonnullOwnPtr<Line>> m_history;
+
+    // The history is a ring buffer: while it is full, add_line_to_history() below
+    // overwrites the oldest line at m_history_start and advances that index. Code
+    // that treats m_history as an ordered list -- the mark search in clear_to_mark(),
+    // the rewrap in set_size() -- has to linearise the ring first. Otherwise it reads
+    // the lines in the wrong order and, worse, leaves m_history_start past the end of
+    // a shortened vector, so the next add_line_to_history() inserts out of bounds and
+    // AK::Vector::insert's `index <= size()` VERIFY trips (SIGILL).
+    void normalize_history()
+    {
+        if (m_history_start == 0)
+            return;
+
+        Vector<NonnullOwnPtr<Line>> linearized;
+        linearized.ensure_capacity(m_history.size());
+        for (size_t i = 0; i < m_history.size(); ++i)
+            linearized.unchecked_append(move(m_history[(m_history_start + i) % m_history.size()]));
+        m_history = move(linearized);
+        m_history_start = 0;
+    }
+
     void add_line_to_history(NonnullOwnPtr<Line>&& line)
     {
         if (max_history_size() == 0)
@@ -404,6 +458,10 @@ protected:
         // If m_history can expand, add the new line to the end of the list.
         // If there is an overflow wrap, the end is at the index before the start.
         if (m_history.size() < max_history_size()) {
+            // m_history_start is only non-zero while the ring is full; a stale index
+            // (see normalize_history()) would make the insert below go out of bounds.
+            if (m_history_start >= m_history.size())
+                m_history_start = 0;
             if (m_history_start == 0)
                 m_history.append(move(line));
             else
@@ -445,6 +503,12 @@ protected:
 
     bool m_needs_bracketed_paste { false };
 
+    // Mouse reporting: bit 0 = X10 (9), bit 1 = 1000, bit 2 = 1002, bit 3 = 1003.
+    u8 m_mouse_tracking_flags { 0 };
+    bool m_mouse_sgr { false };
+    bool m_mouse_utf8 { false };
+    bool m_mouse_focus_events { false };
+
     Attribute m_current_attribute;
     Attribute m_saved_attribute;
 
@@ -456,6 +520,7 @@ protected:
 
 #ifndef KERNEL
     u32 m_next_href_id { 0 };
+    Vector<Hyperlink> m_hyperlinks;
 #endif
 
     u8 m_current_progress { 0 };

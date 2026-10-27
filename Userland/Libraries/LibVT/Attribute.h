@@ -12,10 +12,6 @@
 #include <LibVT/Color.h>
 #include <LibVT/XtermColors.h>
 
-#ifndef KERNEL
-#    include <AK/ByteString.h>
-#endif
-
 namespace VT {
 
 struct Attribute {
@@ -32,16 +28,13 @@ struct Attribute {
     Color foreground_color { default_foreground_color };
     Color background_color { default_background_color };
 
-#ifndef KERNEL
-    ByteString href;
-    Optional<ByteString> href_id;
+    // Index into Terminal::m_hyperlinks (0 = no hyperlink). Keeping the strings
+    // out of every cell is what makes Cell small: a 1024-line, 160-column
+    // scrollback no longer pays for two empty ByteStrings per cell.
+    u32 hyperlink { 0 };
 
-    void reset_hyperlink()
-    {
-        href = {};
-        href_id = {};
-    }
-#endif
+    void reset_hyperlink() { hyperlink = 0; }
+    bool has_hyperlink() const { return hyperlink != 0; }
 
     enum class Flags : u8 {
         NoAttributes = 0x00,
@@ -64,7 +57,10 @@ struct Attribute {
 
     constexpr bool operator==(Attribute const& other) const
     {
-        return foreground_color == other.foreground_color && background_color == other.background_color && flags == other.flags;
+        return foreground_color == other.foreground_color
+            && background_color == other.background_color
+            && flags == other.flags
+            && hyperlink == other.hyperlink;
     }
 };
 

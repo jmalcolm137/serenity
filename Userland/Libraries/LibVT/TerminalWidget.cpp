@@ -201,12 +201,16 @@ void TerminalWidget::set_logical_focus(bool focus)
 void TerminalWidget::focusin_event(GUI::FocusEvent& event)
 {
     set_logical_focus(true);
+    if (m_terminal.mouse_focus_events())
+        emit(reinterpret_cast<u8 const*>("\e[I"), 3);
     return GUI::Frame::focusin_event(event);
 }
 
 void TerminalWidget::focusout_event(GUI::FocusEvent& event)
 {
     set_logical_focus(false);
+    if (m_terminal.mouse_focus_events())
+        emit(reinterpret_cast<u8 const*>("\e[O"), 3);
     return GUI::Frame::focusout_event(event);
 }
 
@@ -308,11 +312,11 @@ void TerminalWidget::paint_event(GUI::PaintEvent& event)
 
     // Pass: Compute the rect(s) of the currently hovered link, if any.
     Vector<Gfx::IntRect> hovered_href_rects;
-    if (m_hovered_href_id.has_value()) {
+    if (m_hovered_hyperlink != 0) {
         for (u16 visual_row = 0; visual_row < m_terminal.rows(); ++visual_row) {
             auto& line = m_terminal.line(first_row_from_history + visual_row);
             for (size_t column = 0; column < line.length(); ++column) {
-                if (m_hovered_href_id == line.attribute_at(column).href_id) {
+                if (m_hovered_hyperlink == line.attribute_at(column).hyperlink) {
                     bool merged_with_existing_rect = false;
                     auto glyph_rect = this->glyph_rect(visual_row, column);
                     for (auto& rect : hovered_href_rects) {
@@ -370,9 +374,9 @@ void TerminalWidget::paint_event(GUI::PaintEvent& event)
             if (has_flag(attribute.flags, VT::Attribute::Flags::Underline)) {
                 // Content has specified underline
                 underline_style = UnderlineStyle::Solid;
-            } else if (!attribute.href.is_empty()) {
+            } else if (attribute.has_hyperlink()) {
                 // We're hovering a hyperlink
-                if (m_hovered_href_id == attribute.href_id || m_active_href_id == attribute.href_id) {
+                if (m_hovered_hyperlink == attribute.hyperlink || m_active_hyperlink == attribute.hyperlink) {
                     underline_style = UnderlineStyle::Solid;
                     underline_color = palette().active_link();
                 } else {
@@ -433,7 +437,7 @@ void TerminalWidget::paint_event(GUI::PaintEvent& event)
 
             auto character_rect = glyph_rect(visual_row, column);
 
-            if (m_hovered_href_id.has_value() && attribute.href_id == m_hovered_href_id) {
+            if (m_hovered_hyperlink != 0 && attribute.hyperlink == m_hovered_hyperlink) {
                 text_color = palette().base_text();
             }
 
@@ -510,14 +514,16 @@ void TerminalWidget::flush_dirty_lines()
         m_terminal.m_need_full_flush = false;
         return;
     }
-    Gfx::IntRect rect;
+    // Update each dirty row on its own. update() accumulates the rects, so only
+    // the rows that changed are repainted: a single united rect would repaint
+    // every row between the topmost and bottommost change (a full-screen TUI
+    // that touches a header and a status line repainted the whole screen).
     for (int i = 0; i < m_terminal.rows(); ++i) {
         if (m_terminal.visible_line(i).is_dirty()) {
-            rect = rect.united(row_rect(i));
+            update(row_rect(i));
             m_terminal.visible_line(i).set_dirty(false);
         }
     }
-    update(rect);
 }
 
 void TerminalWidget::resize_event(GUI::ResizeEvent& event)
@@ -630,6 +636,50 @@ VT::Position TerminalWidget::buffer_position_at(Gfx::IntPoint position) const
         column = line.length() - 1;
     row += m_scrollbar->value();
     return { row, column };
+}
+
+// The cell under a widget-relative point, in *screen* coordinates (0-based,
+// without the scrollback offset) — what mouse reporting reports.
+VT::Position TerminalWidget::screen_position_at(Gfx::IntPoint position) const
+{
+    auto adjusted_position = position.translated(-(frame_thickness() + m_inset), -(frame_thickness() + m_inset));
+    int row = adjusted_position.y() / m_line_height;
+    int column = adjusted_position.x() / m_column_width;
+    row = AK::clamp(row, 0, static_cast<int>(m_terminal.rows()) - 1);
+    column = AK::clamp(column, 0, static_cast<int>(m_terminal.columns()) - 1);
+    return { row, column };
+}
+
+// Encode a mouse event and send it to the application (SGR 1006 or legacy).
+void TerminalWidget::send_mouse_event(GUI::MouseEvent& event, int button, bool release)
+{
+    auto position = screen_position_at(event.position());
+    unsigned x = static_cast<unsigned>(position.column()) + 1;
+    unsigned y = static_cast<unsigned>(position.row()) + 1;
+
+    unsigned modifiers = 0;
+    if (event.shift())
+        modifiers |= 4;
+    if (event.alt())
+        modifiers |= 8;
+    if (event.ctrl())
+        modifiers |= 16;
+
+    if (m_terminal.mouse_sgr()) {
+        StringBuilder builder;
+        builder.appendff("\e[<{};{};{}{}", button | modifiers, x, y, release ? 'm' : 'M');
+        auto sequence = builder.to_byte_string();
+        emit(reinterpret_cast<u8 const*>(sequence.characters()), sequence.length());
+        return;
+    }
+
+    // Legacy encoding: 32 + button; release is button 3; coordinates are clamped
+    // to the 223 byte range (UTF-8 extended coordinates are not implemented).
+    unsigned encoded_button = (release ? 3u : static_cast<unsigned>(button)) | modifiers;
+    x = min(x, 223u);
+    y = min(y, 223u);
+    u8 bytes[6] = { '\e', '[', 'M', static_cast<u8>(32 + encoded_button), static_cast<u8>(32 + x), static_cast<u8>(32 + y) };
+    emit(bytes, sizeof(bytes));
 }
 
 u32 TerminalWidget::code_point_at(VT::Position const& position) const
@@ -773,11 +823,13 @@ VT::Range TerminalWidget::find_previous(StringView needle, VT::Position const& s
 
 void TerminalWidget::doubleclick_event(GUI::MouseEvent& event)
 {
+    if (m_terminal.mouse_tracking())
+        return;
     if (event.button() == GUI::MouseButton::Primary) {
         auto attribute = m_terminal.attribute_at(buffer_position_at(event.position()));
-        if (attribute.href_id.has_value()) {
-            dbgln("Open hyperlinked URL: '{}'", attribute.href);
-            Desktop::Launcher::open(attribute.href);
+        if (auto* hyperlink = m_terminal.hyperlink(attribute.hyperlink)) {
+            dbgln("Open hyperlinked URL: '{}'", hyperlink->href);
+            Desktop::Launcher::open(hyperlink->href);
             return;
         }
 
@@ -826,10 +878,28 @@ void TerminalWidget::copy()
 
 void TerminalWidget::mouseup_event(GUI::MouseEvent& event)
 {
+    if (m_terminal.mouse_tracking()) {
+        int button;
+        switch (event.button()) {
+        case GUI::MouseButton::Primary:
+            button = 0;
+            break;
+        case GUI::MouseButton::Middle:
+            button = 1;
+            break;
+        case GUI::MouseButton::Secondary:
+            button = 2;
+            break;
+        default:
+            return;
+        }
+        send_mouse_event(event, button, true);
+        return;
+    }
     if (event.button() == GUI::MouseButton::Primary) {
-        if (m_active_href_id.has_value()) {
+        if (m_active_hyperlink != 0) {
             m_active_href = {};
-            m_active_href_id = {};
+            m_active_hyperlink = 0;
             update();
         }
 
@@ -842,6 +912,25 @@ void TerminalWidget::mouseup_event(GUI::MouseEvent& event)
 
 void TerminalWidget::mousedown_event(GUI::MouseEvent& event)
 {
+    if (m_terminal.mouse_tracking()) {
+        int button;
+        switch (event.button()) {
+        case GUI::MouseButton::Primary:
+            button = 0;
+            break;
+        case GUI::MouseButton::Middle:
+            button = 1;
+            break;
+        case GUI::MouseButton::Secondary:
+            button = 2;
+            break;
+        default:
+            return;
+        }
+        send_mouse_event(event, button, false);
+        return;
+    }
+
     using namespace AK::TimeLiterals;
 
     if (event.button() == GUI::MouseButton::Primary) {
@@ -849,14 +938,16 @@ void TerminalWidget::mousedown_event(GUI::MouseEvent& event)
         m_left_mousedown_position_buffer = buffer_position_at(m_left_mousedown_position);
 
         auto attribute = m_terminal.attribute_at(m_left_mousedown_position_buffer);
-        if (!(event.modifiers() & Mod_Shift) && !attribute.href.is_empty()) {
-            m_active_href = attribute.href;
-            m_active_href_id = attribute.href_id;
-            update();
-            return;
+        if (!(event.modifiers() & Mod_Shift) && attribute.has_hyperlink()) {
+            if (auto* hyperlink = m_terminal.hyperlink(attribute.hyperlink)) {
+                m_active_href = hyperlink->href;
+                m_active_hyperlink = attribute.hyperlink;
+                update();
+                return;
+            }
         }
         m_active_href = {};
-        m_active_href_id = {};
+        m_active_hyperlink = 0;
 
         if (m_triple_click_timer.is_valid() && m_triple_click_timer.elapsed_time() < 250_ms) {
             int start_column = 0;
@@ -878,18 +969,36 @@ void TerminalWidget::mousedown_event(GUI::MouseEvent& event)
 
 void TerminalWidget::mousemove_event(GUI::MouseEvent& event)
 {
+    if (m_terminal.mouse_tracking() && m_terminal.mouse_reports_drag()) {
+        bool have_button = event.buttons() != 0;
+        if (!have_button && !m_terminal.mouse_reports_any_motion())
+            return;
+        int button = 3;
+        if (have_button) {
+            if (event.buttons() & static_cast<unsigned>(GUI::MouseButton::Primary))
+                button = 0;
+            else if (event.buttons() & static_cast<unsigned>(GUI::MouseButton::Middle))
+                button = 1;
+            else if (event.buttons() & static_cast<unsigned>(GUI::MouseButton::Secondary))
+                button = 2;
+        }
+        send_mouse_event(event, button + 32, false);
+        return;
+    }
+
     auto position = buffer_position_at(event.position());
 
     auto attribute = m_terminal.attribute_at(position);
 
-    if (attribute.href_id != m_hovered_href_id) {
-        if (attribute.href_id.has_value()) {
-            m_hovered_href_id = attribute.href_id;
-            m_hovered_href = attribute.href;
+    if (attribute.hyperlink != m_hovered_hyperlink) {
+        if (auto* hyperlink = m_terminal.hyperlink(attribute.hyperlink)) {
+            auto const& href = hyperlink->href;
+            m_hovered_hyperlink = attribute.hyperlink;
+            m_hovered_href = href;
 
-            auto handlers = Desktop::Launcher::get_handlers_for_url(attribute.href);
+            auto handlers = Desktop::Launcher::get_handlers_for_url(href);
             if (!handlers.is_empty()) {
-                auto url = URL::URL(attribute.href);
+                auto url = URL::URL(href);
                 auto path = URL::percent_decode(url.serialize_path());
 
                 auto app_file = Desktop::AppFile::get_for_app(LexicalPath::basename(handlers[0]));
@@ -904,11 +1013,11 @@ void TerminalWidget::mousemove_event(GUI::MouseEvent& event)
                         set_tooltip(MUST(String::formatted("Open {} with {}", file_name, app_name)));
                     }
                 } else {
-                    set_tooltip(MUST(String::formatted("Open {} with {}", attribute.href, app_name)));
+                    set_tooltip(MUST(String::formatted("Open {} with {}", href, app_name)));
                 }
             }
         } else {
-            m_hovered_href_id = {};
+            m_hovered_hyperlink = 0;
             m_hovered_href = {};
             set_tooltip({});
         }
@@ -923,7 +1032,7 @@ void TerminalWidget::mousemove_event(GUI::MouseEvent& event)
     if (!(event.buttons() & GUI::MouseButton::Primary))
         return;
 
-    if (m_active_href_id.has_value()) {
+    if (m_active_hyperlink != 0) {
         auto diff = event.position() - m_left_mousedown_position;
         auto distance_travelled_squared = diff.x() * diff.x() + diff.y() * diff.y();
         constexpr int drag_distance_threshold = 5;
@@ -936,9 +1045,9 @@ void TerminalWidget::mousemove_event(GUI::MouseEvent& event)
         drag_operation->set_data("text/uri-list"_string, m_active_href);
 
         m_active_href = {};
-        m_active_href_id = {};
+        m_active_hyperlink = 0;
         m_hovered_href = {};
-        m_hovered_href_id = {};
+        m_hovered_hyperlink = 0;
         drag_operation->exec();
         update();
         return;
@@ -977,7 +1086,7 @@ void TerminalWidget::leave_event(Core::Event&)
 {
     bool should_update = !m_hovered_href.is_empty();
     m_hovered_href = {};
-    m_hovered_href_id = {};
+    m_hovered_hyperlink = 0;
     set_tooltip({});
     set_override_cursor(Gfx::StandardCursor::IBeam);
     if (should_update)
@@ -986,6 +1095,21 @@ void TerminalWidget::leave_event(Core::Event&)
 
 void TerminalWidget::mousewheel_event(GUI::MouseEvent& event)
 {
+    if (m_terminal.mouse_tracking()) {
+        // Report the wheel as button 64 (up) / 65 (down) (+64 for horizontal).
+        int button = 0;
+        if (event.wheel_delta_y() < 0)
+            button = 64;
+        else if (event.wheel_delta_y() > 0)
+            button = 65;
+        else if (event.wheel_delta_x() < 0)
+            button = 66;
+        else if (event.wheel_delta_x() > 0)
+            button = 67;
+        if (button != 0)
+            send_mouse_event(event, button, false);
+        return;
+    }
     if (!is_scrollable())
         return;
     set_auto_scroll_direction(AutoScrollDirection::None);
@@ -1154,7 +1278,7 @@ void TerminalWidget::set_cursor_shape(CursorShape shape)
 
 void TerminalWidget::context_menu_event(GUI::ContextMenuEvent& event)
 {
-    if (!m_hovered_href_id.has_value()) {
+    if (m_hovered_hyperlink == 0) {
         m_context_menu->popup(event.screen_position());
     } else {
         m_context_menu_href = m_hovered_href;

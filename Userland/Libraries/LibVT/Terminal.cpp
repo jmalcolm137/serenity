@@ -80,6 +80,9 @@ void Terminal::clear_to_mark(Mark mark)
     }
 
     // If the mark is not found, go through the history.
+    // The ring has to be linearised first: the search below (and the removal) treat
+    // m_history as an ordered list.
+    normalize_history();
     auto it = AK::find_if(
         m_history.rbegin(),
         m_history.rend(),
@@ -205,6 +208,32 @@ void Terminal::alter_private_mode(bool should_set, Parameters params)
         case 2004:
             dbgln_if(TERMINAL_DEBUG, "Setting bracketed mode enabled={}", should_set);
             m_needs_bracketed_paste = should_set;
+            break;
+        case 9:
+        case 1000:
+        case 1002:
+        case 1003: {
+            u8 bit = mode == 9 ? 0x1u : mode == 1000 ? 0x2u
+                : mode == 1002               ? 0x4u
+                                             : 0x8u;
+            dbgln_if(TERMINAL_DEBUG, "Setting mouse tracking mode {} (should_set={})", mode, should_set);
+            if (should_set)
+                m_mouse_tracking_flags |= bit;
+            else
+                m_mouse_tracking_flags &= ~bit;
+            break;
+        }
+        case 1004:
+            dbgln_if(TERMINAL_DEBUG, "Setting focus reporting enabled={}", should_set);
+            m_mouse_focus_events = should_set;
+            break;
+        case 1005:
+            dbgln_if(TERMINAL_DEBUG, "Setting UTF-8 mouse coordinates enabled={}", should_set);
+            m_mouse_utf8 = should_set;
+            break;
+        case 1006:
+            dbgln_if(TERMINAL_DEBUG, "Setting SGR mouse coordinates enabled={}", should_set);
+            m_mouse_sgr = should_set;
             break;
         default:
             dbgln("Terminal::alter_private_mode: Unimplemented private mode {} (should_set={})", mode, should_set);
@@ -918,10 +947,21 @@ void Terminal::put_character_at(unsigned row, unsigned column, u32 code_point)
     VERIFY(row < rows());
     VERIFY(column < columns());
     auto& line = active_buffer()[row];
+
+    // Only mark the line dirty if this write actually changes the cell. Full-screen
+    // TUIs (and synchronized-update redraws) rewrite whole frames with mostly
+    // identical content; treating an identical rewrite as a change made the widget
+    // repaint every row every frame.
+    bool changed = line->code_point(column) != code_point;
     line->set_code_point(column, code_point);
-    line->attribute_at(column) = m_current_state.attribute;
-    line->attribute_at(column).flags |= Attribute::Flags::Touched;
-    line->set_dirty(true);
+    auto new_attribute = m_current_state.attribute;
+    new_attribute.flags |= Attribute::Flags::Touched;
+    if (line->attribute_at(column) != new_attribute) {
+        line->attribute_at(column) = new_attribute;
+        changed = true;
+    }
+    if (changed)
+        line->set_dirty(true);
 
     m_last_code_point = code_point;
 }
@@ -1346,13 +1386,14 @@ void Terminal::execute_osc_sequence(OscParameters parameters, u8 last_byte)
 #ifndef KERNEL
         if (parameters.size() < 3) {
             dbgln("Attempted to set href but gave too few parameters");
-        } else if (parameters[1].is_empty() && parameters[2].is_empty()) {
-            // Clear hyperlink
+        } else if (parameters[2].is_empty()) {
+            // Clear hyperlink (an empty URI means no link; an ID alone is not one).
             m_current_state.attribute.reset_hyperlink();
         } else {
-            m_current_state.attribute.href = stringview_ify(2);
-            // FIXME: Respect the provided ID
-            m_current_state.attribute.href_id = ByteString::number(m_next_href_id++);
+            // Keep the URL and ID once in the terminal, not once per cell. The
+            // attribute only stores the 1-based index into this table.
+            m_hyperlinks.append({ stringview_ify(2).to_byte_string(), ByteString::number(m_next_href_id++) });
+            m_current_state.attribute.hyperlink = static_cast<u32>(m_hyperlinks.size());
         }
 #endif
         break;
@@ -1547,6 +1588,18 @@ void Terminal::handle_key_press(KeyCode key, u32 code_point, u8 flags)
         emit_tilde_with_modifier(6);
         return;
     case KeyCode::Key_Backspace:
+        if (!ctrl) {
+            // A host line discipline expects ^? (DEL) for backspace: that is what
+            // `stty` reports as `erase` on the host this port runs on, and what
+            // full-screen programs that read bytes themselves (yay, htop in raw
+            // mode, vim) recognise. Emitting 0x08 instead makes backspace do
+            // nothing in all of them.
+            //
+            // Serenity's own line editor accepts both (LibLine/Editor.cpp registers
+            // 0x7f and '\b'), so nothing in-tree loses anything.
+            emit_string("\x7f"sv);
+            return;
+        }
         if (ctrl) {
             // This is an extension that allows Editor.cpp to delete whole words when
             // Ctrl+Backspace is pressed. Ctrl cannot be transmitted without a CSI, and
@@ -1736,6 +1789,10 @@ void Terminal::set_size(u16 columns, u16 rows)
 
         return old_cursor;
     };
+
+    // resize_and_rewrap() below walks m_history -- and moves lines through it -- as an
+    // ordered list, so linearise the scrollback ring first.
+    normalize_history();
 
     auto old_history_size = m_history.size();
     m_history.extend(move(m_normal_screen_buffer));
